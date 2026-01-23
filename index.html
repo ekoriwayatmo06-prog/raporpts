@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rapor SMP (V38.1 - Fix Syntax)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/lucide.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&display=swap');
+
+        body { font-family: 'Inter', sans-serif; }
+        .serif { font-family: 'Noto Serif', serif; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        
+        /* Hapus Spinner pada Input Number */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+
+        /* Custom Input Group Style */
+        .input-group-icon {
+            @apply absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400;
+        }
+        .input-with-icon {
+            @apply pl-10;
+        }
+
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; color: black; }
+            #app { padding: 0; margin: 0; }
+            main { margin: 0 !important; padding: 0 !important; }
+            aside { display: none !important; }
+            table.print-table { border-collapse: collapse; width: 100%; }
+            table.print-table th, table.print-table td { border: 1px solid black; padding: 6px; }
+            .page-break { page-break-before: always; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+    <div id="app"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+
+        // --- KONFIGURASI ---
+        const firebaseConfig = {
+  	apiKey: "AIzaSyDo_QvNd6VR4q4rnwNyW0CNW0Ry4_eft-A",
+  	authDomain: "rapor-pts-smp-negeri-2-ceper.firebaseapp.com",
+ 	projectId: "rapor-pts-smp-negeri-2-ceper",
+  	storageBucket: "rapor-pts-smp-negeri-2-ceper.firebasestorage.app",
+  	messagingSenderId: "365669455852",
+  	appId: "1:365669455852:web:e27e4cbdada05340b3d2c9"
+	};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'smp-nilai-v38-fix-syntax';
+
+        // --- STATE ---
+        const state = {
+            user: null,
+            view: 'login',
+            loading: true,
+            searchQuery: '',
+            students: [],
+            grades: [],
+            learningObjectives: [],
+            homerooms: [],
+            attendance: [],
+            teacherNotes: [],
+            settings: { 
+                dinasName: "PEMERINTAH KABUPATEN ...",
+                schoolName: "SMP NEGERI 1 INDONESIA",
+                schoolAddress: "Jl. Pendidikan No. 1",
+                headmaster: "Nama Kepala Sekolah",
+                headmasterNip: "19800101...",
+                semester: "Ganjil",
+                year: "2024/2025",
+                logoDinas: "",   // Base64 String
+                logoSekolah: "",  // Base64 String
+                printPlace: "Nama Kota",
+                printDate: "20 Desember 2024"
+            },
+            selectedClass: '7A', 
+            selectedMapel: 'Matematika',
+            selectedStudentForPrint: null,
+            showModal: false,
+            activeStudentId: null,
+            tempAchieved: [],
+            tempImprove: [],
+            importing: false,
+            tpLevel: '7',
+            tpMapel: 'Matematika',
+            saveTimeouts: {} 
+        };
+
+        // --- HELPERS ---
+        const getClassList = () => {
+            const levels = ['7', '8', '9'];
+            const sections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+            let classes = [];
+            levels.forEach(l => sections.forEach(s => classes.push(`${l}${s}`)));
+            return classes;
+        };
+
+        const getSubjects = (className) => {
+            let mapel = ["Pendidikan Agama", "Pendidikan Pancasila", "Bahasa Indonesia", "Matematika", "IPA", "IPS", "Bahasa Inggris", "PJOK", "Informatika"];
+            if (className.startsWith('7')) { mapel.push("Prakarya", "Koding"); } 
+            else { mapel.push("Seni Budaya"); }
+            mapel.push("Bahasa Jawa");
+            return mapel;
+        };
+
+        const getAbbr = (subject) => {
+            const map = { "Pendidikan Agama": "AGM", "Pendidikan Pancasila": "PP", "Bahasa Indonesia": "BInd", "Matematika": "MTK", "IPA": "IPA", "IPS": "IPS", "Bahasa Inggris": "BIng", "PJOK": "PJK", "Informatika": "INF", "Prakarya": "Prky", "Seni Budaya": "SB", "Koding": "KKA", "Bahasa Jawa": "BJw" };
+            return map[subject] || subject.substring(0, 3).toUpperCase();
+        };
+
+        const renderClassOptions = () => getClassList().map(c => `<option value="${c}" ${state.selectedClass === c ? 'selected' : ''}>Kelas ${c}</option>`).join('');
+
+        const calculateScore = (tugas, uh, uts) => {
+            const t = parseFloat(tugas) || 0;
+            return Math.round(t);
+        };
+
+        const getPredikat = (score) => {
+            if (score >= 90) return 'A';
+            if (score >= 80) return 'B';
+            if (score >= 70) return 'C';
+            return 'D';
+        };
+
+        const generateDescription = (gradeData) => {
+            if (!gradeData) return "-";
+            const achievedCodes = gradeData.tp_achieved || [];
+            const improveCodes = gradeData.tp_improvement || [];
+            const getDescText = (codes) => {
+                return codes.map(code => {
+                    const tp = state.learningObjectives.find(l => l.code === code && l.mapel === gradeData.mapel);
+                    let text = tp ? tp.description : code;
+                    return text.charAt(0).toLowerCase() + text.slice(1).replace(/\.$/, ""); 
+                }).join(", ");
+            };
+            let desc = "";
+            if (achievedCodes.length > 0) desc += `Menunjukkan penguasaan yang baik dalam ${getDescText(achievedCodes)}. `;
+            if (improveCodes.length > 0) desc += `Perlu bimbingan lebih lanjut dalam ${getDescText(improveCodes)}.`;
+            return desc || "Belum ada deskripsi capaian.";
+        };
+
+        const openPrintWindow = (title, contentHtml) => {
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) { alert("Pop-up diblokir. Izinkan pop-up untuk mencetak."); return; }
+            const html = `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>${title}</title><script src="https://cdn.tailwindcss.com"><\/script><style>@import url('https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&display=swap');body{font-family:'Noto Serif',serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid black;padding:4px 8px}.no-border td{border:none}.editable-print:empty:before{content:attr(data-placeholder);color:#ccc}@media print{.page-break{page-break-before:always}body{margin:0;padding:20px}.no-print{display:none}.editable-print:empty:before{content:""}}</style></head><body class="bg-white text-black p-8">${contentHtml}<script>window.onload=()=>{setTimeout(()=>{window.print()},1000)};<\/script></body></html>`;
+            printWindow.document.write(html); printWindow.document.close();
+        };
+
+        // --- ACTIONS ---
+        window.actions = {
+            navigate: (view) => { state.view = view; window.render(); },
+            updateState: (key, value) => { 
+                state[key] = value; 
+                if (key === 'selectedClass') {
+                    const currentSubjects = getSubjects(value);
+                    if (!currentSubjects.includes(state.selectedMapel)) state.selectedMapel = "Pendidikan Agama"; 
+                }
+                if (key === 'tpLevel') state.tpMapel = "Pendidikan Agama";
+                window.render(); 
+            },
+            setSearch: (val) => { state.searchQuery = val.toLowerCase(); window.render(); },
+            
+            updateGradeScore: (studentId, el) => {
+                const value = el.value;
+                let grade = state.grades.find(g => g.studentId === studentId && g.mapel === state.selectedMapel);
+                if (!grade) {
+                    grade = { studentId, mapel: state.selectedMapel, score: 0, tp_achieved: [], tp_improvement: [] };
+                    state.grades.push(grade);
+                }
+                const numVal = parseFloat(value);
+                grade.score = isNaN(numVal) ? 0 : numVal;
+                if (grade.score > 100) {
+                    el.classList.add('border-red-500', 'text-red-600', 'bg-red-50'); el.classList.remove('border-slate-300', 'text-slate-700');
+                } else {
+                    el.classList.remove('border-red-500', 'text-red-600', 'bg-red-50'); el.classList.add('border-slate-300', 'text-slate-700');
+                }
+                const docId = grade.id || `${studentId}_${state.selectedMapel.replace(/\s/g, '')}`;
+                if (state.saveTimeouts[docId]) clearTimeout(state.saveTimeouts[docId]);
+                state.saveTimeouts[docId] = setTimeout(async () => {
+                    try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', docId), { ...grade, id: docId }); } catch (e) {}
+                    delete state.saveTimeouts[docId];
+                }, 1000);
+            },
+            manualSaveGrade: async (studentId) => {
+                const grade = state.grades.find(g => g.studentId === studentId && g.mapel === state.selectedMapel);
+                if (!grade) return alert("Belum ada data nilai.");
+                const docId = grade.id || `${studentId}_${state.selectedMapel.replace(/\s/g, '')}`;
+                try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', docId), { ...grade, id: docId }); alert(`Data siswa ini berhasil disimpan!`); } catch (e) { alert("Gagal menyimpan."); }
+            },
+            openTPModal: (studentId) => {
+                state.activeStudentId = studentId;
+                const g = state.grades.find(gr => gr.studentId === studentId && gr.mapel === state.selectedMapel) || {};
+                state.tempAchieved = g.tp_achieved ? [...g.tp_achieved] : [];
+                state.tempImprove = g.tp_improvement ? [...g.tp_improvement] : [];
+                state.showModal = true;
+                window.render();
+            },
+            closeModal: () => { state.showModal = false; window.render(); },
+            toggleTP: (code, type) => {
+                const target = type === 'achieved' ? state.tempAchieved : state.tempImprove;
+                const other = type === 'achieved' ? state.tempImprove : state.tempAchieved;
+                const idx = target.indexOf(code);
+                if (idx > -1) target.splice(idx, 1);
+                else { target.push(code); const oIdx = other.indexOf(code); if(oIdx > -1) other.splice(oIdx, 1); }
+                window.render();
+            },
+            saveTPSelection: async () => {
+                let grade = state.grades.find(g => g.studentId === state.activeStudentId && g.mapel === state.selectedMapel);
+                if (!grade) { grade = { studentId: state.activeStudentId, mapel: state.selectedMapel, score: 0 }; state.grades.push(grade); }
+                grade.tp_achieved = state.tempAchieved; grade.tp_improvement = state.tempImprove;
+                const docId = grade.id || `${state.activeStudentId}_${state.selectedMapel.replace(/\s/g, '')}`;
+                try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', docId), { ...grade, id: docId }); state.showModal = false; window.render(); } catch (e) {}
+            },
+
+            // --- OTHER ACTIONS ---
+            updateAttendance: (id, f, el) => { const v = parseInt(el.value)||0; let a = state.attendance.find(x=>x.studentId===id); if(!a){a={studentId:id,s:0,i:0,a:0}; state.attendance.push(a);} a[f]=v; },
+            saveAttendance: async (id) => { const a = state.attendance.find(x=>x.studentId===id); if(a) try{ await setDoc(doc(db,'artifacts',appId,'public','data','attendance',id),a); alert('Tersimpan!'); }catch(e){} },
+            updateTeacherNote: (id, el) => { let n = state.teacherNotes.find(x=>x.studentId===id); if(!n){n={studentId:id,text:''}; state.teacherNotes.push(n);} n.text=el.value; },
+            saveTeacherNote: async (id) => { const n = state.teacherNotes.find(x=>x.studentId===id); if(n) try{ await setDoc(doc(db,'artifacts',appId,'public','data','teacher_notes',id),n); alert('Tersimpan!'); }catch(e){} },
+            updateHomeroomLocal: (c, f, v) => { let hr = state.homerooms.find(h => h.id === c); if (!hr) { hr = { id: c, name: '', nip: '' }; state.homerooms.push(hr); } hr[f] = v; },
+            saveHomeroom: async (c) => { const hr = state.homerooms.find(h => h.id === c); if(!hr) return; try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'homerooms', c), hr); alert('Tersimpan!'); } catch(e){} },
+            addStudent: async () => { const n=document.getElementById('new-name').value; const i=document.getElementById('new-nis').value; if(!n||!i) return alert('Isi data!'); try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), { name: n, nis: i, class: state.selectedClass, gender: 'L' }); document.getElementById('new-name').value=''; document.getElementById('new-nis').value=''; alert('Siswa ditambah!'); } catch(e){} },
+            deleteStudent: async (id) => { if(confirm('Hapus?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id)); },
+            downloadTemplate: () => { const link = document.createElement("a"); link.setAttribute("href", encodeURI("data:text/csv;charset=utf-8,Nama Lengkap,NIS\nBudi Santoso,1001\n")); link.setAttribute("download", `Template_Siswa_Kelas_${state.selectedClass}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); },
+            triggerImport: () => { document.getElementById('import-file').click(); },
+            processImport: async (input) => { const file = input.files[0]; if (!file || !confirm(`Impor ke KELAS ${state.selectedClass}?`)) { input.value = ''; return; } state.importing = true; window.render(); const reader = new FileReader(); reader.onload = async (e) => { const rows = e.target.result.split('\n'); let count = 0; for (let i = 1; i < rows.length; i++) { const cols = rows[i].trim().split(','); if (cols.length >= 2 && cols[0].trim()) { try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), { name: cols[0].trim(), nis: cols[1].trim(), class: state.selectedClass }); count++; } catch (err) {} } } state.importing = false; window.render(); alert(`Sukses impor ${count} data.`); input.value = ''; }; reader.readAsText(file); },
+            addTP: async () => { const c=document.getElementById('tp-code').value; const d=document.getElementById('tp-desc').value; if(!c||!d) return alert('Isi lengkap!'); if(d.length>150) return alert('Maks 150 karater'); try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'learning_objectives'), { level: state.tpLevel, mapel: state.tpMapel, code: c, description: d }); document.getElementById('tp-code').value=''; document.getElementById('tp-desc').value=''; alert('TP disimpan!'); } catch(e){} },
+            deleteTP: async (id) => { if(confirm("Hapus?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'learning_objectives', id)); },
+            
+            // --- SETTINGS (LOGO & SAVE) ---
+            updateSettingVal: (key, val) => { state.settings[key] = val; },
+            handleLogoUpload: (key, input) => {
+                const file = input.files[0];
+                if (file) {
+                    if (file.size > 500000) return alert("Ukuran file maksimal 500KB");
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        state.settings[key] = e.target.result;
+                        window.render(); // Render ulang agar preview muncul
+                    };
+                    reader.readAsDataURL(file);
+                }
+            },
+            saveSettings: async () => { 
+                const btn = document.getElementById('btn-save-settings');
+                if(btn) btn.innerText = "Menyimpan...";
+                try { 
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), state.settings); 
+                    alert("Data pengaturan berhasil disimpan!"); 
+                } catch(e) { console.error(e); alert("Gagal menyimpan."); } 
+                finally { if(btn) btn.innerText = "Simpan Semua Pengaturan"; }
+            },
+
+            // --- PRINT LEGER ---
+            printLeger: () => {
+                const classStudents = state.students.filter(s => s.class === state.selectedClass);
+                const currentSubjects = getSubjects(state.selectedClass);
+                const rankingData = classStudents.map(s => {
+                    let total = 0, count = 0;
+                    currentSubjects.forEach(sub => { const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || {}; if (g.score > 0) { total += g.score; count++; } });
+                    return { ...s, avg: count > 0 ? total/count : 0 };
+                }).sort((a,b) => b.avg - a.avg);
+                const rowsHtml = rankingData.map((s, idx) => {
+                    const cols = currentSubjects.map(sub => { const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || {}; return `<td class="text-center">${g.score || ''}</td>`; }).join('');
+                    return `<tr><td class="text-center">${idx + 1}</td><td>${s.name}</td>${cols}<td class="text-center font-bold">${s.avg.toFixed(1)}</td><td class="text-center font-bold">${idx + 1}</td></tr>`;
+                }).join('');
+                const content = `<div class="text-center mb-4"><h3 class="text-lg font-normal uppercase">${state.settings.dinasName || ''}</h3><h2 class="text-xl font-bold uppercase">LEGER NILAI KELAS ${state.selectedClass}</h2></div><div class="mb-4 text-sm"><b>Sekolah:</b> ${state.settings.schoolName} | <b>Semester:</b> ${state.settings.semester} / ${state.settings.year}</div><table><thead><tr class="bg-gray-200"><th>No</th><th>Nama Siswa</th>${currentSubjects.map(s => `<th>${getAbbr(s)}</th>`).join('')}<th>Rata2</th><th>Rank</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+                openPrintWindow(`Leger Kelas ${state.selectedClass}`, content);
+            },
+            
+            // --- PRINT RAPOR ---
+            printRapor: (studentId) => {
+                const s = state.students.find(st => st.id === studentId);
+                if (!s) return;
+                const printSubjects = getSubjects(s.class);
+                const hr = state.homerooms.find(h => h.id === s.class) || { name: '.....................', nip: '.....................' };
+                const att = state.attendance.find(a => a.studentId === s.id) || { s: 0, i: 0, a: 0 };
+                const note = state.teacherNotes.find(n => n.studentId === s.id) || { text: "..." };
+                const dateNow = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                let rowsHtml = '';
+                printSubjects.forEach((sub, idx) => {
+                    const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || { score: 0 };
+                    const pred = getPredikat(g.score);
+                    const desc = generateDescription(g);
+                    rowsHtml += `<tr><td class="text-center p-2">${idx+1}</td><td class="p-2 font-bold">${sub}</td><td class="text-center font-bold p-2">${g.score || '-'}</td><td class="text-center font-bold p-2">${pred}</td><td class="text-sm p-2 text-justify">${desc}</td></tr>`;
+                });
+
+                const logoDinasHtml = state.settings.logoDinas ? `<img src="${state.settings.logoDinas}" style="height: 80px; width: auto; position: absolute; left: 0; top: 0;">` : '';
+                const logoSekolahHtml = state.settings.logoSekolah ? `<img src="${state.settings.logoSekolah}" style="height: 80px; width: auto; position: absolute; right: 0; top: 0;">` : '';
+                
+                // Gunakan tempat dan tanggal cetak dari pengaturan
+                const place = state.settings.printPlace || "Kota Sekolah";
+                const date = state.settings.printDate || dateNow;
+
+                const content = `
+                <div style="position: relative; min-height: 100px; margin-bottom: 20px; border-bottom: 4px double black; padding-bottom: 10px;">
+                    ${logoDinasHtml}
+                    ${logoSekolahHtml}
+                    <div class="text-center" style="margin: 0 90px;">
+                        <h3 class="text-lg font-normal uppercase mb-1" style="margin:0;">${state.settings.dinasName || 'PEMERINTAH KABUPATEN'}</h3>
+                        <h2 class="text-2xl font-bold uppercase tracking-widest" style="margin:5px 0;">${state.settings.schoolName}</h2>
+                        <p class="text-sm" style="margin:0;">${state.settings.schoolAddress}</p>
+                    </div>
+                </div>
+
+                <div class="text-center mb-6">
+                    <p class="text-lg font-bold uppercase">Laporan Hasil Belajar (Rapor)</p>
+                </div>
+
+                <div class="flex justify-between mb-6 text-sm" style="display: flex; justify-content: space-between;">
+                    <table class="no-border" style="width: 50%;"><tr><td style="width: 120px;">Nama Siswa</td><td>: <b>${s.name.toUpperCase()}</b></td></tr><tr><td>NIS / NISN</td><td>: ${s.nis}</td></tr></table>
+                    <table class="no-border" style="width: 40%;"><tr><td style="width: 80px;">Kelas</td><td>: <b>${s.class}</b></td></tr><tr><td>Semester</td><td>: ${state.settings.semester} / ${state.settings.year}</td></tr></table>
+                </div>
+
+                <h3 class="font-bold mb-2 text-sm border-b border-black inline-block">A. Nilai Akademik</h3>
+                <table class="mb-8">
+                    <thead><tr class="bg-gray-100"><th style="width: 30px;">No</th><th>Mata Pelajaran</th><th style="width: 60px;">Nilai</th><th style="width: 60px;">Pred</th><th>Capaian Kompetensi</th></tr></thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+                
+                <div style="display: flex; gap: 30px; margin-bottom: 30px;">
+                    <div style="width: 50%;"><h3 class="font-bold mb-2 text-sm border-b border-black inline-block">B. Ketidakhadiran</h3><table><tr><td style="width: 120px;">Sakit</td><td class="text-center">${att.s}</td><td>hari</td></tr><tr><td>Izin</td><td class="text-center">${att.i}</td><td>hari</td></tr><tr><td>Tanpa Ket</td><td class="text-center">${att.a}</td><td>hari</td></tr></table></div>
+                    <div style="width: 50%;"><h3 class="font-bold mb-2 text-sm border-b border-black inline-block">C. Catatan Wali Kelas</h3><div style="border: 1px solid black; height: 80px; padding: 5px; font-size: 12px;">${note.text}</div></div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 50px; text-align: center; font-size: 12px;">
+                    <div style="width: 30%;">
+                        <p style="margin-bottom: 80px;">Mengetahui,<br>Orang Tua/Wali</p>
+                        <p style="border-top: 1px solid black; display: inline-block; padding: 0 20px;">( ................................... )</p>
+                    </div>
+                    <div style="width: 30%;">
+                        <p style="margin-bottom: 80px;">Mengetahui,<br>Kepala Sekolah</p>
+                        <p style="font-weight: bold; text-decoration: underline;">${state.settings.headmaster}</p>
+                        <p>NIP. ${state.settings.headmasterNip}</p>
+                    </div>
+                    <div style="width: 30%;">
+                        <p style="margin-bottom: 80px;">${place}, ${date}<br>Wali Kelas</p>
+                        <p style="font-weight: bold; text-decoration: underline;">${hr.name}</p>
+                        <p>NIP. ${hr.nip}</p>
+                    </div>
+                </div>`;
+                openPrintWindow(`Rapor ${s.name}`, content);
+            }
+        };
+
+        const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); };
+        
+        onAuthStateChanged(auth, (user) => { 
+            state.user = user; 
+            if (user) { 
+                if (state.view === 'login') state.view = 'dashboard';
+                const collections = [{ name: 'students', state: 'students' }, { name: 'grades', state: 'grades' }, { name: 'learning_objectives', state: 'learningObjectives' }, { name: 'homerooms', state: 'homerooms' }, { name: 'attendance', state: 'attendance' }, { name: 'teacher_notes', state: 'teacherNotes' }];
+                collections.forEach(col => {
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', col.name), (snap) => {
+                        state[col.state] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        if (col.state === 'learningObjectives') state.learningObjectives.sort((a,b) => a.code.localeCompare(b.code));
+                        window.render();
+                    });
+                });
+                onSnapshot(doc(db,'artifacts',appId,'public','data','settings','config'), d => { if(d.exists()) state.settings={...state.settings,...d.data()}; window.render(); }); 
+            } 
+            window.render(); 
+        });
+
+        window.render = () => {
+            const root = document.getElementById('app');
+            let focusedId = null; let cursorPosition = 0;
+            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) { focusedId = document.activeElement.id; cursorPosition = document.activeElement.selectionStart; }
+
+            const currentSubjects = getSubjects(state.selectedClass);
+
+            if (!state.user && state.view === 'login') {
+                root.innerHTML = `<div class="flex h-screen items-center justify-center bg-slate-900"><div class="bg-white p-8 rounded-2xl shadow-xl text-center w-full max-w-sm"><h1 class="text-2xl font-bold mb-2">SI-RAPOR SMP</h1><p class="text-slate-500 mb-6">Versi 38.1 (Fix Settings UI)</p><button onclick="window.actions.navigate('dashboard')" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700">Masuk Aplikasi</button></div></div>`;
+                return;
+            }
+
+            let mainContent = '';
+            const classStudents = state.students.filter(s => s.class === state.selectedClass);
+            const filteredStudents = classStudents.filter(s => s.name.toLowerCase().includes(state.searchQuery));
+
+            switch(state.view) {
+                // --- SETTINGS (NEW UI) ---
+                case 'settings': 
+                    mainContent = `
+                    <div class="max-w-5xl mx-auto space-y-8 pb-20">
+                        <div class="flex items-center gap-4 border-b pb-6">
+                            <div class="p-3 bg-blue-100 rounded-xl text-blue-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </div>
+                            <div>
+                                <h2 class="text-3xl font-bold text-slate-800">Pengaturan Aplikasi</h2>
+                                <p class="text-slate-500">Kelola data sekolah, kepala sekolah, dan atribut rapor dengan mudah.</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- Card Identitas -->
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
+                                <div class="bg-blue-50/50 p-4 border-b border-slate-100 flex items-center gap-3">
+                                    <span class="p-2 bg-blue-100 text-blue-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+                                    <h3 class="font-bold text-lg text-slate-800">Identitas Sekolah</h3>
+                                </div>
+                                <div class="p-6 space-y-5">
+                                    <div class="relative">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Nama Dinas / Yayasan</label>
+                                        <div class="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg>
+                                            <input type="text" value="${state.settings.dinasName || ''}" oninput="window.actions.updateSettingVal('dinasName',this.value)" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-300" placeholder="PEMERINTAH KABUPATEN ...">
+                                        </div>
+                                    </div>
+                                    <div class="relative">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Nama Sekolah</label>
+                                        <div class="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"/><path d="M12 13v9"/><path d="M12 2v4"/><path d="M4 13v1a2 2 0 0 0 2 2h2"/><path d="M16 16h2a2 2 0 0 0 2-2v-1"/></svg>
+                                            <input type="text" value="${state.settings.schoolName}" oninput="window.actions.updateSettingVal('schoolName',this.value)" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                        </div>
+                                    </div>
+                                    <div class="relative">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Alamat Lengkap</label>
+                                        <div class="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                            <input type="text" value="${state.settings.schoolAddress}" oninput="window.actions.updateSettingVal('schoolAddress',this.value)" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Card Akademik -->
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
+                                <div class="bg-indigo-50/50 p-4 border-b border-slate-100 flex items-center gap-3">
+                                    <span class="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                                    <h3 class="font-bold text-lg text-slate-800">Tahun Akademik & Cetak</h3>
+                                </div>
+                                <div class="p-6 space-y-5">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Semester</label>
+                                            <input type="text" value="${state.settings.semester}" oninput="window.actions.updateSettingVal('semester',this.value)" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Ganjil/Genap">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Tahun Ajaran</label>
+                                            <input type="text" value="${state.settings.year}" oninput="window.actions.updateSettingVal('year',this.value)" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="2024/2025">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Tempat Cetak</label>
+                                            <div class="relative">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                                <input type="text" value="${state.settings.printPlace || ''}" oninput="window.actions.updateSettingVal('printPlace',this.value)" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Kota">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Tanggal Cetak</label>
+                                            <div class="relative">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                                <input type="text" value="${state.settings.printDate || ''}" oninput="window.actions.updateSettingVal('printDate',this.value)" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Tgl Bulan Thn">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                             <!-- Card Kepala Sekolah -->
+                             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
+                                <div class="bg-emerald-50/50 p-4 border-b border-slate-100 flex items-center gap-3">
+                                    <span class="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                                    <h3 class="font-bold text-lg text-slate-800">Kepala Sekolah</h3>
+                                </div>
+                                <div class="p-6 space-y-5">
+                                    <div class="relative">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Nama Lengkap & Gelar</label>
+                                        <div class="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                            <input type="text" value="${state.settings.headmaster}" oninput="window.actions.updateSettingVal('headmaster',this.value)" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
+                                        </div>
+                                    </div>
+                                    <div class="relative">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">NIP</label>
+                                        <div class="relative">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="input-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <input type="text" value="${state.settings.headmasterNip}" oninput="window.actions.updateSettingVal('headmasterNip',this.value)" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Card Logo -->
+                             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:shadow-md transition-shadow">
+                                <div class="bg-orange-50/50 p-4 border-b border-slate-100 flex items-center gap-3">
+                                    <span class="p-2 bg-orange-100 text-orange-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>
+                                    <h3 class="font-bold text-lg text-slate-800">Logo Kop Surat</h3>
+                                </div>
+                                <div class="p-6">
+                                    <div class="flex gap-4">
+                                        <div class="flex-1">
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-2 text-center">Logo Dinas (Kiri)</label>
+                                            <div class="border-2 border-dashed border-slate-300 rounded-xl p-2 cursor-pointer relative h-32 flex flex-col items-center justify-center hover:bg-slate-50 hover:border-orange-300 transition-all bg-slate-50" onclick="document.getElementById('logoDinasInput').click()">
+                                                ${state.settings.logoDinas ? `<img src="${state.settings.logoDinas}" class="h-full object-contain">` : `<div class="text-slate-400 text-center"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" class="mx-auto mb-1 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span class="text-[10px]">Klik Upload</span></div>`}
+                                                <input id="logoDinasInput" type="file" accept="image/*" class="hidden" onchange="window.actions.handleLogoUpload('logoDinas', this)">
+                                            </div>
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="block text-xs font-bold text-slate-500 uppercase mb-2 text-center">Logo Sekolah (Kanan)</label>
+                                            <div class="border-2 border-dashed border-slate-300 rounded-xl p-2 cursor-pointer relative h-32 flex flex-col items-center justify-center hover:bg-slate-50 hover:border-orange-300 transition-all bg-slate-50" onclick="document.getElementById('logoSekolahInput').click()">
+                                                ${state.settings.logoSekolah ? `<img src="${state.settings.logoSekolah}" class="h-full object-contain">` : `<div class="text-slate-400 text-center"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" class="mx-auto mb-1 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span class="text-[10px]">Klik Upload</span></div>`}
+                                                <input id="logoSekolahInput" type="file" accept="image/*" class="hidden" onchange="window.actions.handleLogoUpload('logoSekolah', this)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 mt-3 text-center italic">Format: PNG/JPG (Max 500KB). Transparan lebih baik.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Floating Save Button -->
+                        <div class="fixed bottom-6 right-6 md:right-10 z-30">
+                            <button id="btn-save-settings" onclick="window.actions.saveSettings()" class="bg-slate-800 text-white px-6 py-4 rounded-full font-bold shadow-2xl hover:bg-slate-900 transition-all flex items-center gap-3 transform hover:-translate-y-1 ring-4 ring-white/50 backdrop-blur-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                Simpan Semua Pengaturan
+                            </button>
+                        </div>
+                    </div>`;
+                    break;
+                
+                // --- OTHER VIEWS (Standard) ---
+                case 'attendance': mainContent = `<div class="space-y-6"><div class="flex flex-col md:flex-row justify-between items-center gap-4"><h2 class="text-2xl font-bold text-slate-800">Input Kehadiran</h2><div class="flex gap-2"><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-white border px-4 py-2 rounded-lg scroll-py-2 max-h-48 overflow-y-auto w-full md:w-auto focus:ring-2 focus:ring-blue-500">${renderClassOptions()}</select></div></div><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><table class="w-full text-left text-sm"><thead class="bg-slate-50 border-b border-slate-200 text-xs uppercase font-bold text-slate-500"><tr><th class="p-4 w-32">NIS</th><th class="p-4">Nama Siswa</th><th class="p-4 w-20 text-center">Sakit</th><th class="p-4 w-20 text-center">Izin</th><th class="p-4 w-20 text-center">Alpha</th><th class="p-4 w-20 text-center">Aksi</th></tr></thead><tbody class="divide-y divide-slate-100">${filteredStudents.map(s => { const att = state.attendance.find(a => a.studentId === s.id) || { s: 0, i: 0, a: 0 }; return `<tr class="hover:bg-slate-50 transition-colors group"><td class="p-4 font-mono text-slate-600">${s.nis}</td><td class="p-4 font-medium text-slate-800">${s.name}</td><td class="p-2 text-center"><input type="number" id="att-s-${s.id}" value="${att.s}" oninput="window.actions.updateAttendance('${s.id}','s',this)" class="w-16 px-2 py-1 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></td><td class="p-2 text-center"><input type="number" id="att-i-${s.id}" value="${att.i}" oninput="window.actions.updateAttendance('${s.id}','i',this)" class="w-16 px-2 py-1 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></td><td class="p-2 text-center"><input type="number" id="att-a-${s.id}" value="${att.a}" oninput="window.actions.updateAttendance('${s.id}','a',this)" class="w-16 px-2 py-1 text-center border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></td><td class="p-2 text-center"><button onclick="window.actions.saveAttendance('${s.id}')" class="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button></td></tr>`; }).join('')}</tbody></table></div></div>`; break;
+                case 'notes': mainContent = `<div class="space-y-6"><div class="flex flex-col md:flex-row justify-between items-center gap-4"><h2 class="text-2xl font-bold text-slate-800">Catatan Wali Kelas</h2><div class="flex gap-2"><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-white border px-4 py-2 rounded-lg scroll-py-2 max-h-48 overflow-y-auto w-full md:w-auto focus:ring-2 focus:ring-blue-500">${renderClassOptions()}</select></div></div><div class="grid gap-4">${filteredStudents.map(s => { const note = state.teacherNotes.find(n => n.studentId === s.id) || { text: '' }; return `<div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-start"><div class="w-full md:w-64 flex-shrink-0"><h3 class="font-bold text-slate-800">${s.name}</h3><p class="text-xs text-slate-500 font-mono">${s.nis}</p></div><div class="flex-1 w-full"><textarea id="note-${s.id}" oninput="window.actions.updateTeacherNote('${s.id}',this)" class="w-full h-20 p-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="Tulis catatan...">${note.text}</textarea></div><button onclick="window.actions.saveTeacherNote('${s.id}')" class="self-end md:self-start bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Simpan</button></div>`; }).join('')}</div></div>`; break;
+                case 'input':
+                    const currentLevel = state.selectedClass.charAt(0);
+                    const relevantTPs = state.learningObjectives.filter(tp => tp.level === currentLevel && tp.mapel === state.selectedMapel);
+                    const modalHTML = state.showModal ? `<div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay p-4"><div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fade-in"><div class="p-6 border-b flex justify-between items-center bg-blue-600 rounded-t-2xl"><h3 class="text-xl font-bold text-white">Deskripsi Capaian Kompetensi</h3><button onclick="window.actions.closeModal()" class="text-blue-100 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="p-6 overflow-y-auto flex-1"><div class="mb-4 bg-yellow-50 border border-yellow-100 p-4 rounded-lg flex items-start gap-3"><div class="text-yellow-600 mt-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><p class="text-sm text-yellow-800 font-bold">Petunjuk Pengisian:</p><p class="text-sm text-yellow-700">Pilih TP yang sudah <b>Tercapai</b> pada kolom hijau dan TP yang <b>Perlu Peningkatan</b> pada kolom oranye.</p></div></div><table class="w-full text-left text-sm border-collapse"><thead class="bg-slate-100 text-slate-600 sticky top-0 z-10 shadow-sm"><tr><th class="p-3 w-20 border-b">Kode</th><th class="p-3 border-b">Tujuan Pembelajaran</th><th class="p-3 w-28 text-center border-b bg-green-50 text-green-800 border-l">Tercapai</th><th class="p-3 w-28 text-center border-b bg-orange-50 text-orange-800 border-l">Peningkatan</th></tr></thead><tbody class="divide-y">${relevantTPs.map(tp => { const isAchieved = state.tempAchieved.includes(tp.code); const isImprove = state.tempImprove.includes(tp.code); return `<tr class="hover:bg-slate-50"><td class="p-3 font-bold text-slate-500">${tp.code}</td><td class="p-3 text-slate-700">${tp.description}</td><td class="p-3 text-center border-l bg-green-50/30"><input type="checkbox" ${isAchieved ? 'checked' : ''} onchange="window.actions.toggleTP('${tp.code}', 'achieved')" class="w-6 h-6 text-green-600 rounded focus:ring-green-500 accent-green-600 cursor-pointer"></td><td class="p-3 text-center border-l bg-orange-50/30"><input type="checkbox" ${isImprove ? 'checked' : ''} onchange="window.actions.toggleTP('${tp.code}', 'improve')" class="w-6 h-6 text-orange-600 rounded focus:ring-orange-500 accent-orange-600 cursor-pointer"></td></tr>`; }).join('')}</tbody></table></div><div class="p-6 border-t bg-slate-50 flex justify-end gap-3 rounded-b-2xl"><button onclick="window.actions.closeModal()" class="px-6 py-2.5 rounded-xl border border-slate-300 font-bold text-slate-600 hover:bg-white transition-all">Batal</button><button onclick="window.actions.saveTPSelection()" class="px-6 py-2.5 rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-700 shadow-lg hover:shadow-blue-500/30 transition-all">Simpan Deskripsi</button></div></div></div>` : '';
+                    mainContent = `${modalHTML}<div class="space-y-6"><div class="flex flex-col md:flex-row gap-4 justify-between md:items-center"><div><h2 class="text-2xl font-bold text-slate-800">Input Nilai & Deskripsi</h2><p class="text-sm text-slate-500">Masukkan Nilai Akhir (UTS/UAS) dan pilih TP.</p></div><div class="flex gap-2"><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-white border px-4 py-2.5 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none">${renderClassOptions()}</select><select onchange="window.actions.updateState('selectedMapel', this.value)" class="bg-white border px-4 py-2.5 rounded-xl text-sm font-bold text-blue-700 focus:ring-2 focus:ring-blue-500 outline-none w-48 md:w-auto">${currentSubjects.map(s => `<option value="${s}" ${state.selectedMapel==s?'selected':''}>${s}</option>`).join('')}</select></div></div><input type="text" placeholder="Cari nama siswa..." onkeyup="window.actions.setSearch(this.value)" class="w-full pl-4 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition-all"><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><table class="w-full text-left text-sm"><thead class="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500"><tr><th class="p-4 min-w-[200px]">Identitas Siswa</th><th class="p-4 text-center w-40">Nilai (0-100)</th><th class="p-4">Deskripsi Capaian</th><th class="p-4 w-20 text-center">Aksi</th></tr></thead><tbody class="divide-y divide-slate-100">${filteredStudents.map(s => { const g = state.grades.find(x => x.studentId === s.id && x.mapel === state.selectedMapel) || {}; const hasData = (g.tp_achieved?.length > 0 || g.tp_improvement?.length > 0); 
+                        const isError = g.score > 100;
+                        const inputClass = isError ? "border-red-500 text-red-600 bg-red-50 focus:ring-red-200" : "border-slate-300 text-slate-700 focus:border-blue-500 focus:ring-blue-200";
+
+                        return `<tr class="hover:bg-blue-50 transition-colors group">
+                        <td class="p-4"><div class="font-bold text-slate-800 text-base">${s.name}</div><div class="text-xs text-slate-400 font-mono">${s.nis}</div></td>
+                        <td class="p-4 text-center"><div class="flex items-center justify-center"><input type="text" inputmode="numeric" id="grade-${s.id}" class="w-20 px-2 py-1 text-center text-sm font-semibold border rounded-md outline-none transition-all shadow-sm ${inputClass}" value="${g.score||''}" oninput="window.actions.updateGradeScore('${s.id}', this)" placeholder="0"></div></td>
+                        <td class="p-4"><button onclick="window.actions.openTPModal('${s.id}')" class="w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all duration-200 ${hasData ? 'bg-green-50 border-green-200 text-green-800 hover:bg-green-100' : 'bg-white border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:shadow-md'}"><div class="flex items-center gap-3"><div class="${hasData ? 'bg-green-200 text-green-700' : 'bg-slate-100 text-slate-400'} p-2 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14 2z"/><polyline points="14 2 14 8 20 8"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></div><div class="text-left"><div class="font-bold text-sm">${hasData ? 'Deskripsi Tersimpan' : 'Pilih TP'}</div><div class="text-xs opacity-80">${hasData ? `${g.tp_achieved?.length||0} Tercapai, ${g.tp_improvement?.length||0} Peningkatan` : 'Klik untuk memilih TP'}</div></div></div><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button></td>
+                        <td class="p-4 text-center"><button onclick="window.actions.manualSaveGrade('${s.id}')" class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg shadow-sm transition-colors" title="Simpan Permanen"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button></td>
+                        </tr>`; }).join('')}</tbody></table></div></div>`;
+                    break;
+                case 'students': mainContent = `<div class="space-y-6"><div class="flex flex-col md:flex-row justify-between items-center gap-4"><h2 class="text-2xl font-bold text-slate-800">Manajemen Data Siswa</h2><div class="flex gap-2 w-full md:w-auto"><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-white border px-4 py-2 rounded-lg scroll-py-2 max-h-48 overflow-y-auto w-full md:w-auto focus:ring-2 focus:ring-blue-500">${renderClassOptions()}</select></div></div><div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between"><div class="flex-1"><div class="flex items-center gap-2 mb-1"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><h3 class="font-bold text-slate-800">Aksi Massal</h3></div><p class="text-sm text-slate-500">Gunakan template CSV untuk memasukkan banyak data siswa sekaligus.</p></div><div class="flex gap-2 w-full md:w-auto"><button onclick="window.actions.downloadTemplate()" class="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg> Download Template</button><input type="file" id="import-file" accept=".csv" class="hidden" onchange="window.actions.processImport(this)"><button onclick="window.actions.triggerImport()" class="flex-1 md:flex-none flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors shadow-md">${state.importing ? 'Memproses...' : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Impor CSV`}</button></div></div><div class="bg-blue-50 p-5 rounded-xl border border-blue-100 flex flex-col md:flex-row gap-4 items-end"><div class="flex-1 w-full"><label class="block text-xs font-bold text-blue-800 uppercase mb-1">Nama Lengkap Siswa</label><input type="text" id="new-name" class="w-full px-4 py-2 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: Budi Santoso"></div><div class="w-full md:w-48"><label class="block text-xs font-bold text-blue-800 uppercase mb-1">NIS / NISN</label><input type="text" id="new-nis" class="w-full px-4 py-2 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345"></div><button onclick="window.actions.addStudent()" class="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-md h-[42px] transition-colors">+ Tambah</button></div><p class="text-xs text-blue-600 ml-1 font-medium">*Siswa baru akan otomatis masuk ke <strong>Kelas ${state.selectedClass}</strong> (Sesuai filter di atas)</p><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold"><tr><th class="p-4 w-32">NIS</th><th class="p-4">Nama Siswa</th><th class="p-4 w-32 text-center">Kelas</th><th class="p-4 w-24 text-right">Aksi</th></tr></thead><tbody class="divide-y divide-slate-100">${filteredStudents.map(s => `<tr class="hover:bg-slate-50 transition-colors group"><td class="p-4 font-mono text-slate-600 font-medium">${s.nis}</td><td class="p-4 font-medium text-slate-800">${s.name}</td><td class="p-4 text-center"><span class="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold border border-slate-200">${s.class}</span></td><td class="p-4 text-right"><button onclick="window.actions.deleteStudent('${s.id}')" class="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded transition-all" title="Hapus Siswa"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button></td></tr>`).join('')}</tbody></table></div></div>`; break;
+                case 'dashboard': const totalStudents = state.students.length; const totalGrades = state.grades.length; const estGrades = totalStudents * 12; const prog = totalStudents > 0 ? Math.round((totalGrades / estGrades) * 100) : 0; mainContent = `<div class="space-y-6"><div class="grid grid-cols-1 md:grid-cols-3 gap-6"><div class="bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden"><div class="relative z-10"><h3 class="text-blue-100 mb-1 text-sm font-medium">Total Siswa</h3><div class="text-4xl font-bold">${totalStudents}</div></div></div><div class="bg-white p-6 rounded-2xl border shadow-sm"><h3 class="text-slate-500 mb-1 text-sm font-medium">Progress Input</h3><div class="flex items-end gap-2"><div class="text-3xl font-bold text-slate-800">${prog}%</div><div class="text-xs text-slate-400 mb-1.5">Tersimpan</div></div><div class="w-full bg-slate-100 rounded-full h-2 mt-2"><div class="bg-blue-600 h-2 rounded-full" style="width: ${prog}%"></div></div></div><div class="bg-white p-6 rounded-2xl border shadow-sm"><h3 class="text-slate-500 mb-1 text-sm font-medium">Sekolah</h3><div class="text-lg font-bold text-slate-800 truncate">${state.settings.schoolName}</div><div class="text-xs text-slate-400 mt-1">Semester ${state.settings.semester}</div></div></div><div class="bg-white rounded-2xl border shadow-sm p-6"><div class="flex flex-col md:flex-row justify-between mb-6 gap-4"><div><h3 class="text-lg font-bold text-slate-800">Kemajuan Input Nilai</h3><p class="text-sm text-slate-500">Statistik per kelas.</p></div><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-slate-50 border px-4 py-2 rounded-lg text-sm font-medium">${renderClassOptions()}</select></div><div class="overflow-hidden rounded-xl border"><table class="w-full text-left text-sm"><thead class="bg-slate-50 border-b text-xs uppercase font-bold text-slate-500"><tr><th class="p-4">Mapel</th><th class="p-4 text-center">Tuntas</th><th class="p-4 text-center">Total</th><th class="p-4">Progress</th></tr></thead><tbody class="divide-y">${currentSubjects.map(sub => { const stds = state.students.filter(s => s.class === state.selectedClass); const done = stds.filter(s => state.grades.some(g => g.studentId === s.id && g.mapel === sub)).length; const p = stds.length>0 ? Math.round((done/stds.length)*100) : 0; let c = 'bg-red-500'; if(p>40) c='bg-yellow-500'; if(p>85) c='bg-green-500'; return `<tr><td class="p-4 font-medium">${sub}</td><td class="p-4 text-center font-bold">${done}</td><td class="p-4 text-center text-slate-400">${stds.length}</td><td class="p-4"><div class="flex items-center gap-3"><div class="flex-1 bg-slate-100 rounded-full h-2"><div class="${c} h-2 rounded-full" style="width: ${p}%"></div></div><span class="text-xs font-bold w-8">${p}%</span></div></td></tr>`; }).join('')}</tbody></table></div></div></div>`; break;
+                case 'homeroom': const classes = getClassList(); mainContent = `<div class="space-y-6"><h2 class="text-2xl font-bold text-slate-800">Manajemen Wali Kelas</h2><div class="bg-white rounded-xl border shadow-sm overflow-hidden"><table class="w-full text-left text-sm"><thead class="bg-slate-50 border-b text-xs uppercase font-bold text-slate-500"><tr><th class="p-4 w-24 text-center">Kelas</th><th class="p-4">Nama Wali Kelas</th><th class="p-4 w-48">NIP</th><th class="p-4 w-24 text-center">Aksi</th></tr></thead><tbody class="divide-y">${classes.map(c => { const hr = state.homerooms.find(h => h.id === c) || { name: '', nip: '' }; return `<tr class="hover:bg-slate-50"><td class="p-4 text-center font-bold bg-slate-50">${c}</td><td class="p-2"><input type="text" value="${hr.name}" onchange="window.actions.updateHomeroomLocal('${c}','name',this.value)" class="w-full px-3 py-2 border rounded" placeholder="Nama..."></td><td class="p-2"><input type="text" value="${hr.nip}" onchange="window.actions.updateHomeroomLocal('${c}','nip',this.value)" class="w-full px-3 py-2 border rounded font-mono" placeholder="NIP..."></td><td class="p-2 text-center"><button onclick="window.actions.saveHomeroom('${c}')" class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg shadow-sm transition-colors" title="Simpan"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></button></td></tr>`; }).join('')}</tbody></table></div></div>`; break;
+                case 'tp': const tpList = state.learningObjectives.filter(tp => tp.level === state.tpLevel && tp.mapel === state.tpMapel); const tpSubjects = getSubjects(state.tpLevel + 'A'); mainContent = `<div class="space-y-6"><div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><div><h2 class="text-2xl font-bold text-slate-800">Tujuan Pembelajaran (TP)</h2><p class="text-sm text-slate-500">Input TP untuk referensi deskripsi rapor.</p></div><div class="flex gap-2"><select onchange="window.actions.updateState('tpLevel', this.value)" class="bg-white border px-3 py-2 rounded font-bold"><option value="7" ${state.tpLevel==='7'?'selected':''}>Kls 7</option><option value="8" ${state.tpLevel==='8'?'selected':''}>Kls 8</option><option value="9" ${state.tpLevel==='9'?'selected':''}>Kls 9</option></select><select onchange="window.actions.updateState('tpMapel', this.value)" class="bg-white border px-3 py-2 rounded text-blue-700 font-bold">${tpSubjects.map(s => `<option value="${s}" ${state.tpMapel===s?'selected':''}>${s}</option>`).join('')}</select></div></div><div class="bg-white p-6 rounded-xl border shadow-sm"><div class="flex gap-4"><input type="text" id="tp-code" class="w-32 px-4 py-2 border rounded" placeholder="Kode (7.1)"><input type="text" id="tp-desc" maxlength="150" class="flex-1 px-4 py-2 border rounded" placeholder="Deskripsi TP (Maks 150 Karakter)..."><button onclick="window.actions.addTP()" class="bg-blue-600 text-white px-6 rounded font-bold">Simpan</button></div></div><div class="bg-white rounded-xl border overflow-hidden"><table class="w-full text-left"><thead class="bg-slate-50 border-b"><tr><th class="p-4 w-24">Kode</th><th class="p-4">Deskripsi</th><th class="p-4 w-24 text-center">Level</th><th class="p-4 w-20 text-right">Aksi</th></tr></thead><tbody class="divide-y">${tpList.map(tp => `<tr><td class="p-4 font-bold text-blue-600">${tp.code}</td><td class="p-4">${tp.description}</td><td class="p-4 text-center text-sm text-slate-500">Kelas ${tp.level}</td><td class="p-4 text-right"><button onclick="window.actions.deleteTP('${tp.id}')" class="text-red-500 font-bold">Hapus</button></td></tr>`).join('')}</tbody></table></div></div>`; break;
+                case 'leger': const studentsWithAvg = classStudents.map(s => { let total = 0, count = 0; currentSubjects.forEach(sub => { const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || {}; if (g.score > 0) { total += g.score; count++; } }); const avg = count > 0 ? total / count : 0; return { ...s, avg }; }).sort((a, b) => b.avg - a.avg); studentsWithAvg.forEach((s, idx) => s.rank = idx + 1); mainContent = `<div class="space-y-6"><div class="flex justify-between items-center gap-4"><h2 class="text-2xl font-bold text-slate-800">Leger & Rapor</h2><div class="flex gap-2"><select onchange="window.actions.updateState('selectedClass', this.value)" class="bg-white border px-4 py-2 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 shadow-sm">${renderClassOptions()}</select><button onclick="window.actions.printLeger()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-md hover:shadow-lg transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Cetak Leger</button></div></div><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left text-sm whitespace-nowrap"><thead class="bg-slate-50 border-b font-bold text-slate-600"><tr><th class="p-3 sticky left-0 bg-slate-50 z-20 border-r w-12 text-center">No</th><th class="p-3 sticky left-12 bg-slate-50 z-20 border-r w-64">Nama Siswa</th><th class="p-3 text-center w-24">Cetak Rapor</th>${currentSubjects.map(s => `<th class="p-3 text-center border-l w-16" title="${s}">${getAbbr(s)}</th>`).join('')}<th class="p-3 text-center bg-blue-50 text-blue-800 border-l font-bold w-20">Rata2</th><th class="p-3 text-center bg-yellow-50 text-yellow-800 border-l font-bold w-16">Rank</th></tr></thead><tbody class="divide-y divide-slate-100">${studentsWithAvg.map((s, idx) => { const cols = currentSubjects.map(sub => { const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || {}; return `<td class="p-3 text-center border-l font-mono ${!g.score ? 'text-slate-300' : ''}">${g.score || '-'}</td>`; }).join(''); return `<tr class="hover:bg-slate-50 transition-colors"><td class="p-3 sticky left-0 bg-white z-10 border-r text-center text-slate-500">${idx + 1}</td><td class="p-3 sticky left-12 bg-white z-10 border-r font-medium text-slate-800">${s.name}</td><td class="p-2 text-center"><button onclick="window.actions.printRapor('${s.id}')" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded hover:bg-black transition-colors shadow flex items-center justify-center gap-1 w-full"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg> Cetak</button></td>${cols}<td class="p-3 text-center font-bold bg-blue-50 text-blue-800 border-l">${s.avg.toFixed(1)}</td><td class="p-3 text-center font-bold bg-yellow-50 text-yellow-800 border-l">#${s.rank}</td></tr>`; }).join('')}</tbody></table></div></div></div>`; break;
+            }
+
+            root.innerHTML = `
+                <div class="flex min-h-screen no-print bg-slate-50">
+                    <aside class="w-64 bg-slate-900 text-slate-300 hidden md:flex flex-col fixed h-full z-20">
+                        <div class="p-6 border-b border-slate-800 flex items-center gap-3"><div class="bg-blue-600 p-1.5 rounded text-white font-bold text-xs">V38</div><span class="font-bold text-lg text-white">SI-RAPOR</span></div>
+                        <nav class="flex-1 p-4 space-y-2 text-sm">
+                            ${menuBtn('dashboard', 'Dashboard', '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>')}
+                            ${menuBtn('students', 'Data Siswa', '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')}
+                            ${menuBtn('homeroom', 'Wali Kelas', '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')}
+                            <div class="pt-2 pb-1 px-4 text-xs font-bold text-slate-500 uppercase">Akademik</div>
+                            ${menuBtn('tp', 'Tujuan Pembelajaran', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>')}
+                            ${menuBtn('attendance', 'Kehadiran', '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/>')}
+                            ${menuBtn('notes', 'Catatan Wali', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>')}
+                            ${menuBtn('input', 'Input Nilai & TP', '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>')}
+                            ${menuBtn('leger', 'Leger & Rapor', '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>')}
+                            <div class="pt-2 pb-1 px-4 text-xs font-bold text-slate-500 uppercase">Sistem</div>
+                            ${menuBtn('settings', 'Pengaturan', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>')}
+                        </nav>
+                        <div class="p-6 text-xs text-slate-500 border-t border-slate-800">&copy; 2024 Jaringan Lokal</div>
+                    </aside>
+                    <div class="md:hidden fixed top-0 w-full bg-slate-900 text-white p-4 z-30 flex justify-between items-center"><span class="font-bold">SI-RAPOR V38</span><button onclick="document.querySelector('aside').classList.toggle('hidden'); document.querySelector('aside').classList.toggle('flex')" class="px-3 py-1 bg-slate-700 rounded text-xs">MENU</button></div>
+                    <main class="flex-1 md:ml-64 p-4 md:p-8 mt-14 md:mt-0 transition-all">${mainContent}</main>
+                </div>`;
+            
+            // Re-focus element if it was an input
+            if (focusedId) {
+                const el = document.getElementById(focusedId);
+                if (el) {
+                    el.focus();
+                    try { el.setSelectionRange(cursorPosition, cursorPosition); } catch(e){}
+                }
+            }
+        };
+
+        const menuBtn = (id, label, icon) => `<button onclick="window.actions.navigate('${id}')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${state.view === id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg><span class="font-medium">${label}</span></button>`;
+
+        window.onload = initAuth;
+    </script>
+    <style>
+        .label-text { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
+        .input-field { width: 100%; padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; outline: none; transition: all; }
+        .input-field:focus { border-color: #3b82f6; ring: 2px solid #3b82f6; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+    </style>
+</body>
+</html>
