@@ -50,19 +50,19 @@
     <div id="app"></div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+		import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
         // --- KONFIGURASI ---
         const firebaseConfig = {
-  	apiKey: "AIzaSyDo_QvNd6VR4q4rnwNyW0CNW0Ry4_eft-A",
-  	authDomain: "rapor-pts-smp-negeri-2-ceper.firebaseapp.com",
- 	projectId: "rapor-pts-smp-negeri-2-ceper",
-  	storageBucket: "rapor-pts-smp-negeri-2-ceper.firebasestorage.app",
-  	messagingSenderId: "365669455852",
-  	appId: "1:365669455852:web:e27e4cbdada05340b3d2c9"
-	};
+    apiKey: "AIzaSyDsVpXIZgsg3gfzHtK8Iltz8WscTdplMWg",
+    authDomain: "rapor-uts.firebaseapp.com",
+    projectId: "rapor-uts",
+    storageBucket: "rapor-uts.firebasestorage.app",
+    messagingSenderId: "11958052180",
+    appId: "1:11958052180:web:c70adfab794a30ddd2d4c1"
+  };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -615,4 +615,5 @@
         .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
     </style>
 </body>
+
 </html>
