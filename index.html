@@ -300,7 +300,6 @@
                 let rowsHtml = '';
                 printSubjects.forEach((sub, idx) => {
                     const g = state.grades.find(x => x.studentId === s.id && x.mapel === sub) || { score: 0 };
-                    const pred = getPredikat(g.score);
                     const desc = generateDescription(g);
                     rowsHtml += `<tr><td class="text-center p-2">${idx+1}</td><td class="p-2 font-bold">${sub}</td><td class="text-center font-bold p-2">${g.score || '-'}</td><td class="text-center font-bold p-2">${pred}</td><td class="text-sm p-2 text-justify">${desc}</td></tr>`;
                 });
@@ -616,3 +615,4 @@
     </style>
 </body>
 </html>
+
