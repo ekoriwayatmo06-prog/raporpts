@@ -87,20 +87,24 @@
         // --- 1. ISI KONFIGURASI FIREBASE ANDA DI BAWAH INI ---
         // ==================================================================================
         const firebaseConfig = {
-            apiKey: "AIzaSyDsVpXIZgsg3gfzHtK8Iltz8WscTdplMWg",
-            authDomain: "rapor-uts.firebaseapp.com",
-            projectId: "rapor-uts",
-            storageBucket: "rapor-uts.firebasestorage.app",
-            messagingSenderId: "11958052180",
-            appId: "1:11958052180:web:33db2a8836b94053d2d4c1"
+            apiKey: "ISI_API_KEY_ANDA_DISINI",
+            authDomain: "ISI_PROJECT_ID.firebaseapp.com",
+            projectId: "ISI_PROJECT_ID",
+            storageBucket: "ISI_PROJECT_ID.appspot.com",
+            messagingSenderId: "ISI_SENDER_ID",
+            appId: "ISI_APP_ID"
         };
         // ==================================================================================
 
         // Inisialisasi Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'smp-nilai-v38-V43-Fix-Layout-Rapor';
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase Init Error: Pastikan config sudah diisi.", e);
+        }
 
         // --- STATE APLIKASI ---
         const state = {
@@ -741,5 +745,3 @@
     </style>
 </body>
 </html>
-
-
